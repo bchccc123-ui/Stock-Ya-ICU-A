@@ -358,7 +358,130 @@ function ExpPicker({ drug, expM, expY, fullDate, onExpM, onExpY, onFullDate, all
 }
 
 /* ═══ PUTAWAY OVERLAY ═══ */
-function PutawayOverlay({ drug, qty, expiry, returnLots, pa, fefoExp, context, singleStock, groupName, groupIcon, onDone }) {
+function PutawayOverlay({ drug, drugs, qty, expiry, returnLots, pa, fefoExp, context, singleStock, groupName, groupIcon, onDone }) {
+  // ── Multi-Drug Mode (Emergency หลายยา) ──
+  if (drugs && drugs.length > 1) {
+    return (
+      <div className="overlay" style={{ background:'#0F4A38', alignItems:'stretch', justifyContent:'flex-start', padding:16, overflowY:'auto', gap:0 }}>
+        <div style={{ fontSize:17, fontWeight:800, color:'#fff', marginBottom:4 }}>
+          {context === 'return' ? 'คืนยา' : 'รับเข้า'} {drugs.length} รายการ
+        </div>
+        <div style={{ fontSize:11, color:'rgba(255,255,255,0.6)', marginBottom:16 }}>
+          ตรวจสอบตำแหน่งวางของแต่ละยา
+        </div>
+        
+        {/* Drug List */}
+        <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:16 }}>
+          {drugs.map((item, idx) => {
+            const itemDrug = item.drug
+            const isSingle = item.singleStock
+            
+            // คำนวณตำแหน่งสำหรับยาธรรมดา
+            let positionText = ''
+            if (!isSingle && item.pa) {
+              const dir = item.pa.direction || 'ltr'
+              const position = item.pa.position || 1
+              const total = (item.pa.existingLots?.length || 0) + 1
+              
+              if (dir === 'rtl') {
+                if (position === 1) positionText = 'ขวาสุด'
+                else if (position === total) positionText = 'ซ้ายสุด'
+                else positionText = `ที่ ${position} นับจากขวา`
+              } else if (dir === 'fb') {
+                if (position === 1) positionText = 'หน้าสุด'
+                else if (position === total) positionText = 'หลังสุด'
+                else positionText = `ที่ ${position} นับจากหน้า`
+              } else {
+                if (position === 1) positionText = 'ซ้ายสุด'
+                else if (position === total) positionText = 'ขวาสุด'
+                else positionText = `ที่ ${position} นับจากซ้าย`
+              }
+              positionText += ` (จาก ${total} ตำแหน่ง)`
+            }
+            
+            return (
+              <div key={idx} style={{ background:'rgba(0,0,0,0.25)', borderRadius:12, padding:12, border:'1px solid rgba(255,255,255,0.1)' }}>
+                {/* Header */}
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <div style={{ fontSize:15, fontWeight:700, color:'#fff', background:'rgba(255,255,255,0.1)', width:26, height:26, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12 }}>
+                      {idx + 1}
+                    </div>
+                    <div>
+                      <div style={{ fontSize:14, fontWeight:600, color:'#fff' }}>{itemDrug.name}</div>
+                      <div style={{ fontSize:10, color:'rgba(255,255,255,0.5)' }}>
+                        EXP {fmtMY(item.expiry)} · {item.qty || item.returnLots?.reduce((s,l)=>s+l.qty,0) || 1} {itemDrug.unit}
+                      </div>
+                    </div>
+                  </div>
+                  {isSingle && (
+                    <div style={{ fontSize:10, padding:'3px 8px', borderRadius:12, background:'rgba(245,166,35,0.2)', color:'#F5A623', fontWeight:600 }}>
+                      Single stock
+                    </div>
+                  )}
+                </div>
+                
+                {/* Position Info */}
+                {isSingle ? (
+                  // Single Stock: แสดง slot
+                  <div style={{ background:'rgba(245,166,35,0.1)', border:'1px solid rgba(245,166,35,0.3)', borderRadius:8, padding:8 }}>
+                    <div style={{ fontSize:11, color:'rgba(255,255,255,0.6)', marginBottom:4 }}>📍 ตำแหน่งการวาง</div>
+                    <div style={{ fontSize:13, color:'#F5A623', fontWeight:700, marginBottom:2 }}>
+                      📦 {item.groupName || 'Slot'}
+                    </div>
+                    <div style={{ fontSize:11, color:'rgba(255,255,255,0.7)' }}>
+                      วางแทนของเดิม (Single stock)
+                    </div>
+                  </div>
+                ) : (
+                  // Multi-lot: แสดง position ชัดเจน
+                  <div style={{ background:'rgba(93,219,167,0.08)', border:'1px solid rgba(93,219,167,0.2)', borderRadius:8, padding:8 }}>
+                    {item.returnLots && item.returnLots.length > 1 ? (
+                      <>
+                        <div style={{ fontSize:11, color:'rgba(255,255,255,0.6)', marginBottom:4 }}>
+                          📍 ตำแหน่งการวาง
+                        </div>
+                        <div style={{ fontSize:13, color:'#5DDBA7', fontWeight:700, marginBottom:4 }}>
+                          {positionText || 'ตรวจสอบ FEFO'}
+                        </div>
+                        <div style={{ fontSize:11, color:'rgba(255,255,255,0.7)', marginBottom:6 }}>
+                          คืน {item.returnLots.length} lots
+                        </div>
+                        <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
+                          {item.returnLots.map((lot, lotIdx) => (
+                            <div key={lotIdx} style={{ fontSize:10, padding:'4px 8px', borderRadius:6, background:'rgba(93,219,167,0.15)', border:'1px solid rgba(93,219,167,0.3)', color:'#5DDBA7', fontWeight:600 }}>
+                              {fmtMY(lot.expiry)}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ fontSize:11, color:'rgba(255,255,255,0.6)', marginBottom:4 }}>
+                          📍 ตำแหน่งการวาง
+                        </div>
+                        <div style={{ fontSize:13, color:'#5DDBA7', fontWeight:700, marginBottom:2 }}>
+                          {positionText || 'วางตาม FEFO'}
+                        </div>
+                        <div style={{ fontSize:10, padding:'4px 8px', display:'inline-block', borderRadius:6, background:'rgba(93,219,167,0.15)', border:'1px solid rgba(93,219,167,0.3)', color:'#5DDBA7', fontWeight:600 }}>
+                          EXP {fmtMY(item.expiry)}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        
+        <button onClick={onDone} style={{ background:'#5DDBA7', border:'none', borderRadius:12, padding:13, color:'#050D0A', fontFamily:'inherit', fontSize:14, fontWeight:800, cursor:'pointer', width:'100%' }}>
+          ✓ ยืนยัน — วางยาแล้ว
+        </button>
+      </div>
+    )
+  }
+  
   // ── Single-Stock: overlay แบบง่าย "วางแทนของเดิม" ──
   if (singleStock) {
     return (
@@ -1498,6 +1621,9 @@ function ReplaceModal({ open, onClose, pending, drugsWithStock, lots, nurses, db
       // Group items by drugId for PutawayOverlay
       const drugGroups = {}
       
+      // Track lots after FEFO deduction (for Emergency only)
+      const lotsAfterFEFO = {}
+      
       for (const item of validItems) {
         const drug = dl.find(d => d.id == item.drugId)
         if (!drug) continue
@@ -1513,13 +1639,23 @@ function ReplaceModal({ open, onClose, pending, drugsWithStock, lots, nurses, db
         if (pending.source !== 'missing_tracked') {
           const drugLots = lots.filter(l => l.drugId == item.drugId && l.qty > 0)
             .sort((a,b) => new Date(a.expiry) - new Date(b.expiry))
+          
+          // Simulate FEFO deduction locally
+          let remainingLots = drugLots.map(l => ({ ...l })) // clone
           let rem = item.qty
-          for (const lot of drugLots) {
+          for (const lot of remainingLots) {
             if (rem <= 0) break
             const take = Math.min(lot.qty, rem)
             await updateDoc(doc(db, 'lots', lot.docId), { qty: lot.qty - take })
+            lot.qty -= take
             rem -= take
           }
+          
+          // Store lots after deduction (filter out qty=0)
+          lotsAfterFEFO[drug.id] = remainingLots.filter(l => l.qty > 0)
+        } else {
+          // Missing: ไม่ต้องตัด FEFO (ตัดไปแล้วตอน Stock Count)
+          lotsAfterFEFO[drug.id] = lots.filter(l => l.drugId == item.drugId && l.qty > 0)
         }
 
         // 2. Add new lot
@@ -1576,7 +1712,7 @@ function ReplaceModal({ open, onClose, pending, drugsWithStock, lots, nurses, db
         
         // Group lots by drugId for overlay
         if (!drugGroups[drug.id]) {
-          drugGroups[drug.id] = { drug, lots: [] }
+          drugGroups[drug.id] = { drug, lots: [], lotsAfterFEFO: lotsAfterFEFO[drug.id] || [] }
         }
         drugGroups[drug.id].lots.push({ expiry: newExpiry, qty: item.qty })
       }
@@ -1591,11 +1727,33 @@ function ReplaceModal({ open, onClose, pending, drugsWithStock, lots, nurses, db
         })
       }
 
-      // 5. Show PutawayOverlay แทน success screen
-      // ถ้ามีหลายยา แสดงแค่ยาแรก (หรือแยกแสดงทีละยาก็ได้)
-      const firstDrugId = Object.keys(drugGroups)[0]
-      if (firstDrugId) {
-        const { drug, lots: returnLots } = drugGroups[firstDrugId]
+      // Helper: คำนวณ pa ด้วย lots หลังตัด FEFO
+      const calcPutawayWithLots = (drugId, expiry, existingLots) => {
+        const drug = dl.find(d => d.id == drugId)
+        if (!drug) return null
+        
+        const dir = drug.direction || 'ltr'
+        const sorted = [...existingLots, { expiry, isNew: true }]
+          .sort((a, b) => new Date(a.expiry) - new Date(b.expiry))
+        
+        const total = sorted.length
+        const newIndex = sorted.findIndex(l => l.isNew)
+        const position = newIndex + 1
+        
+        return {
+          direction: dir,
+          position,
+          existingLots: existingLots
+        }
+      }
+
+      // 5. Show PutawayOverlay
+      const drugIds = Object.keys(drugGroups)
+      
+      if (isMissing || drugIds.length === 1) {
+        // Missing หรือ Emergency ยาเดียว → แสดงแบบเดิม
+        const drugId = drugIds[0]
+        const { drug, lots: returnLots, lotsAfterFEFO: existingLots } = drugGroups[drugId]
         
         if (drug?.singleStock) {
           const group = STORAGE_GROUPS.find(g => g.id === drug.groupId)
@@ -1609,9 +1767,8 @@ function ReplaceModal({ open, onClose, pending, drugsWithStock, lots, nurses, db
             groupIcon: group?.icon || '📦'
           })
         } else {
-          // Multi-lot or single lot
           const sortedLots = returnLots.sort((a, b) => new Date(a.expiry) - new Date(b.expiry))
-          const pa = calcPutaway(drug.id, sortedLots[0].expiry)
+          const pa = calcPutawayWithLots(drug.id, sortedLots[0].expiry, existingLots)
           
           if (sortedLots.length === 1) {
             setPutaway({
@@ -1630,6 +1787,37 @@ function ReplaceModal({ open, onClose, pending, drugsWithStock, lots, nurses, db
             })
           }
         }
+      } else {
+        // Emergency หลายยา → แสดงแบบ multi-drug
+        const allDrugs = drugIds.map(drugId => {
+          const { drug, lots, lotsAfterFEFO: existingLots } = drugGroups[drugId]
+          const sortedLots = lots.sort((a, b) => new Date(a.expiry) - new Date(b.expiry))
+          
+          if (drug?.singleStock) {
+            const group = STORAGE_GROUPS.find(g => g.id === drug.groupId)
+            return {
+              drug,
+              qty: sortedLots[0].qty,
+              expiry: sortedLots[0].expiry,
+              singleStock: true,
+              groupName: group?.name || '',
+              groupIcon: group?.icon || '📦'
+            }
+          } else {
+            return {
+              drug,
+              returnLots: sortedLots.length > 1 ? sortedLots : null,
+              qty: sortedLots.length === 1 ? sortedLots[0].qty : null,
+              expiry: sortedLots[0].expiry,
+              pa: calcPutawayWithLots(drug.id, sortedLots[0].expiry, existingLots)
+            }
+          }
+        })
+        
+        setPutaway({
+          drugs: allDrugs,  // ← ส่ง array
+          context: 'return'
+        })
       }
       
       // Close modal
@@ -3703,7 +3891,7 @@ function StockCount({ drugs, nurses, lots, lotsOf, db, fmtMY, daysLeft }) {
                 const sortedLots=[...rx.lots].sort((a,b)=>new Date(a.expiry)-new Date(b.expiry))
                 let rem=rx.systemTotal-rx.counted
                 for(const l of sortedLots){if(rem<=0)break;const cut=Math.min(l.qty,rem);await updateDoc(doc(db,'lots',l.docId),{qty:l.qty-cut});rem-=cut}
-                const pRef=await addDoc(collection(db,'pending_syncs'),{bed_id:rx.missingBed,nurse,drug_id:rx.drug.id,drug_name:rx.drug.name,qty:rx.systemTotal-rx.counted,timestamp:Timestamp.now(),source:'missing_tracked',status:'pending',created_at:Timestamp.now(),completed_at:null,completed_by:null,reconciled_withdrawal_id:null})
+                const pRef=await addDoc(collection(db,'pending_syncs'),{bed_id:rx.missingBed,nurse,drug_id:rx.drug.id,drug_name:rx.drug.name,qty:rx.systemTotal-rx.counted,timestamp:startTs||Timestamp.now(),source:'missing_tracked',status:'pending',created_at:Timestamp.now(),completed_at:null,completed_by:null,reconciled_withdrawal_id:null})
                 const bedValLoc=rx.missingBed==='other'?`อื่นๆ: ${rx.missingNote||''}`:rx.missingBed
                 await addDoc(collection(db,'withdrawals'),{nurse,drugId:rx.drug.id,drugName:rx.drug.name,bed:bedValLoc,qty:rx.systemTotal-rx.counted,note:rx.missingBed==='other'?`(Stock Count — Missing Tracked: ${rx.missingNote||''})`:'(Stock Count — Missing Tracked)',returned:false,retExp:'',ts:Timestamp.now(),usage_type:'Missing_Tracked',pending_sync_id:pRef.id,reconciliation_time_minutes:null})
               } catch(e){console.error('Missing_Tracked save error:',e)}
