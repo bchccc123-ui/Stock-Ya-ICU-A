@@ -1732,7 +1732,8 @@ function ReplaceModal({ open, onClose, pending, drugsWithStock, lots, nurses, db
         const drug = dl.find(d => d.id == drugId)
         if (!drug) return null
         
-        const dir = drug.direction || 'ltr'
+        // ใช้ getDrugDir() เหมือน calculateFEFOWithReturns
+        const dir = getDrugDir(drugId)
         const sorted = [...existingLots, { expiry, isNew: true }]
           .sort((a, b) => new Date(a.expiry) - new Date(b.expiry))
         
