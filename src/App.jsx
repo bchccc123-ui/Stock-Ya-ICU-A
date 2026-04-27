@@ -1682,6 +1682,9 @@ function ReplaceModal({ open, onClose, pending, drugsWithStock, lots, nurses, db
       // Track lots after FEFO deduction (for Emergency only)
       const lotsAfterFEFO = {}
       
+      // ✓ FIX: Track cumulative FEFO deductions for same drug
+      const cumulativeLotsAfterFEFO = {}
+      
       for (const item of validItems) {
         const drug = dl.find(d => d.id == item.drugId)
         if (!drug) continue
@@ -1695,8 +1698,11 @@ function ReplaceModal({ open, onClose, pending, drugsWithStock, lots, nurses, db
 
         // 1. Deduct old stock FEFO (ถ้าเป็น Emergency เท่านั้น - Missing ตัดไปแล้วตอน Stock Count)
         if (pending.source !== 'missing_tracked') {
-          const drugLots = lots.filter(l => l.drugId == item.drugId && l.qty > 0)
-            .sort((a,b) => new Date(a.expiry) - new Date(b.expiry))
+          // ✓ FIX: ใช้ lots ที่ตัดไปแล้ว (cumulative) ถ้ามี ไม่งั้นใช้ lots จาก state
+          const drugLots = (cumulativeLotsAfterFEFO[drug.id] 
+            ? cumulativeLotsAfterFEFO[drug.id] 
+            : lots.filter(l => l.drugId == item.drugId && l.qty > 0)
+          ).sort((a,b) => new Date(a.expiry) - new Date(b.expiry))
           
           // Simulate FEFO deduction locally
           let remainingLots = drugLots.map(l => ({ ...l })) // clone
@@ -1710,7 +1716,10 @@ function ReplaceModal({ open, onClose, pending, drugsWithStock, lots, nurses, db
           }
           
           // Store lots after deduction (filter out qty=0)
-          lotsAfterFEFO[drug.id] = remainingLots.filter(l => l.qty > 0)
+          const updatedLots = remainingLots.filter(l => l.qty > 0)
+          lotsAfterFEFO[drug.id] = updatedLots
+          // ✓ FIX: อัพเดต cumulative tracking
+          cumulativeLotsAfterFEFO[drug.id] = updatedLots
         } else {
           // Missing: ไม่ต้องตัด FEFO (ตัดไปแล้วตอน Stock Count)
           lotsAfterFEFO[drug.id] = lots.filter(l => l.drugId == item.drugId && l.qty > 0)
