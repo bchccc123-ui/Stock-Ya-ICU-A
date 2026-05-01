@@ -825,6 +825,7 @@ export default function App() {
   const [expirySnapshots, setExpirySnapshots] = useState([])
   const [pendingSyncs, setPendingSyncs] = useState([])
   const [nurses, setNurses] = useState([])
+  const [groups, setGroups] = useState(STORAGE_GROUPS)
   const [seeded, setSeeded] = useState(false)
   const [locationDirs, setLocationDirs] = useState(() => {
     try { return JSON.parse(localStorage.getItem('termya_loc_dirs') || '{}') } catch { return {} }
@@ -862,6 +863,18 @@ export default function App() {
         }
       } catch (e) { console.error('Seed nurses error:', e) }
 
+      try {
+        // Seed storage_groups if empty
+        const gSnap = await getDocs(collection(db, 'storage_groups'))
+        if (gSnap.empty) {
+          const batch3 = writeBatch(db)
+          STORAGE_GROUPS.forEach(g => {
+            batch3.set(doc(db, 'storage_groups', g.id), g)
+          })
+          await batch3.commit()
+        }
+      } catch (e) { console.error('Seed storage_groups error:', e) }
+
       setSeeded(true)
     }
     init()
@@ -895,6 +908,16 @@ export default function App() {
     }))
     unsubs.push(onSnapshot(query(collection(db, 'pending_syncs'), orderBy('timestamp', 'desc')), s => {
       setPendingSyncs(s.docs.map(d => ({ docId: d.id, ...d.data() })))
+    }))
+    unsubs.push(onSnapshot(collection(db, 'storage_groups'), s => {
+      if (!s.empty) {
+        const gs = s.docs.map(d => ({ ...d.data(), docId: d.id }))
+          .sort((a, b) => (a.order || 0) - (b.order || 0))
+        setGroups(gs)
+        // sync back to STORAGE_GROUPS so all direct reads stay consistent
+        STORAGE_GROUPS.length = 0
+        gs.forEach(g => STORAGE_GROUPS.push(g))
+      }
     }))
     setLoading(false)
     return () => unsubs.forEach(u => u())
@@ -1158,6 +1181,7 @@ export default function App() {
             <Setting
               drugs={drugs} nurses={nurses} db={db}
               locationDirs={locationDirs} saveLocDir={saveLocDir}
+              groups={groups}
             />
           )}
         </div>
@@ -2165,6 +2189,7 @@ function PendingView({ pendingSyncs, withdrawals, drugs, nurses, db, setReplaceM
   const stockReturns = withdrawals.filter(w => 
     !w.pending_sync_id && 
     w.usage_type !== 'Missing_Tracked' && 
+    w.usage_type !== 'Missing_Unknown' && 
     w.usage_type !== 'Emergency' &&
     (!w.returned || (w.returned_qty !== undefined && w.returned_qty < w.qty))
   )
@@ -5187,11 +5212,12 @@ function History({ withdrawals, checks, lots, lotsOf, calcPutaway, fmtDT, fmtMY,
                     ) : w.usage_type === 'Missing_Unknown' ? (
                       <span className="b" style={{background:'#FCE4EC', color:'#AD1457', border:'0.5px solid #F06292', fontSize:10, padding:'2px 7px'}}>❓ Missing-Unk</span>
                     ) : null}
-                    {w.returned && <span className="b bg">Return แล้ว{w.retExp ? ` · EXP ${fmtMY(w.retExp)}` : ''}{w.return_timestamp ? ` · ${fmtDT(w.return_timestamp)}` : ''}</span>}
+                    {w.returned && w.usage_type !== 'Missing_Unknown' && <span className="b bg">Return แล้ว{w.retExp ? ` · EXP ${fmtMY(w.retExp)}` : ''}{w.return_timestamp ? ` · ${fmtDT(w.return_timestamp)}` : ''}</span>}
+                    {w.usage_type === 'Missing_Unknown' && <span className="b" style={{background:'#F3E5F5',color:'#6A1B9A',border:'0.5px solid #CE93D8',fontSize:10,padding:'2px 7px'}}>ตัดออกจากระบบ</span>}
                   </div>
                   <div style={{ fontSize: 10, color: '#8BA898' }}>{w.bed} · {w.nurse}{w.note && w.note !== '(Quick)' && !w.note.includes('Replace:') && !w.note.includes('Multi Quick Use') ? ' · ' + w.note : w.note === '(Quick)' ? ' · ⚡ Quick' : ''}</div>
                   <div style={{ fontSize: 10, color: '#8BA898', fontFamily: 'monospace' }}>{w.ts && fmtDT(w.ts)}</div>
-                  {rs?.open && !w.returned && (
+                  {rs?.open && !w.returned && w.usage_type !== 'Missing_Unknown' && (
                     <div className="retpanel">
                       <div style={{ fontSize: 11, fontWeight: 500, color: '#3C3489', marginBottom: 8 }}>ระบุ EXP ยาที่คืน</div>
                       {exLots.length > 0 && <div style={{ fontSize: 11, color: '#534AB7', background: 'rgba(83,74,183,.08)', borderRadius: 6, padding: '5px 8px', marginBottom: 8 }}>FEFO ปัจจุบัน: <b>{fmtMY(exLots[0].expiry)}</b></div>}
@@ -5211,10 +5237,10 @@ function History({ withdrawals, checks, lots, lotsOf, calcPutaway, fmtDT, fmtMY,
                     </div>
                   )}
                 </div>
-                {!w.returned && !rs?.open && (
+                {!w.returned && !rs?.open && w.usage_type !== 'Missing_Unknown' && (
                   <button onClick={() => openRet(w.docId)} style={{ padding: '4px 10px', borderRadius: 6, border: '0.5px solid #CECBF6', background: '#EEEDFE', color: '#3C3489', fontSize: 11, cursor: 'pointer', flexShrink: 0 }}>Return</button>
                 )}
-                {w.returned && <span style={{ fontSize: 10, color: '#8BA898' }}>คืนแล้ว</span>}
+                {w.returned && w.usage_type !== 'Missing_Unknown' && <span style={{ fontSize: 10, color: '#8BA898' }}>คืนแล้ว</span>}
               </div>
             )
           }) : <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: '#8BA898' }}>ยังไม่มีบันทึก</div>
@@ -6245,17 +6271,19 @@ function Export({ drugsWithStock, lots, withdrawals, checks, daysLeft, fmtMY, ca
 }
 
 /* ═══ SETTING ═══ */
-function Setting({ drugs, nurses, db, locationDirs, saveLocDir }) {
+function Setting({ drugs, nurses, db, locationDirs, saveLocDir, groups }) {
   const [editId, setEditId]     = useState(null)
   const [form, setForm]         = useState({ name:'', unit:'amp', par:1, min:1, groupId:'G1', highAlert:false, controlled:false, singleStock:false, alertDays:30, fullDateExp:false, shelfDirectionOverride:'inherit' })
   const [drugSearch, setDrugSearch] = useState('')
   const [newNurse, setNewNurse] = useState('')
   const [saving, setSaving]     = useState(false)
   const [ok, setOk]             = useState('')
-  // Location management
-  const [locations, setLocations]   = useState(STORAGE_GROUPS)
+  // Location management — ใช้ groups จาก Firestore (realtime)
+  const locations = groups || STORAGE_GROUPS
   const [newLocName, setNewLocName] = useState('')
   const [newLocIcon, setNewLocIcon] = useState('📦')
+  const [dragId,     setDragId]     = useState(null)
+  const [dragOverId, setDragOverId] = useState(null)
   const [settingTab, setSettingTab] = useState('drugs') // drugs | nurses | locations
   const [qrDrug, setQrDrug] = useState(null)
 
@@ -6298,16 +6326,24 @@ function Setting({ drugs, nurses, db, locationDirs, saveLocDir }) {
     const d = snap.docs.find(x => x.data().name === name)
     if (d) await deleteDoc(doc(db, 'nurses', d.id))
   }
-  // Location management (in-memory + STORAGE_GROUPS mutation for session)
-  const addLocation = () => {
+  // Location management — บันทึกลง Firestore
+  const addLocation = async () => {
     if (!newLocName.trim()) return
+    setSaving(true)
     const newId = `GX${Date.now()}`
     const colors = ['#0F6E56','#185FA5','#854F0B','#534AB7','#A32D2D','#5F5E5A']
     const color  = colors[locations.length % colors.length]
-    const newLoc = { id: newId, name: newLocName.trim(), icon: newLocIcon, color }
-    STORAGE_GROUPS.push(newLoc)
-    setLocations([...STORAGE_GROUPS])
-    setNewLocName(''); setOk('เพิ่ม Location สำเร็จ ✓ (ใช้ได้ใน session นี้)'); setTimeout(() => setOk(''), 3000)
+    const newLoc = { id: newId, name: newLocName.trim(), icon: newLocIcon, color, order: locations.length }
+    await setDoc(doc(db, 'storage_groups', newId), newLoc)
+    setNewLocName(''); setSaving(false)
+    setOk('เพิ่ม Location สำเร็จ ✓'); setTimeout(() => setOk(''), 2000)
+  }
+  const deleteLocation = async (locId) => {
+    const inUse = drugs.some(d => d.groupId === locId)
+    if (inUse) { alert('ไม่สามารถลบได้ — มียาที่ใช้ Location นี้อยู่'); return }
+    if (!window.confirm('ลบ Location นี้?')) return
+    await deleteDoc(doc(db, 'storage_groups', locId))
+    setOk('ลบ Location แล้ว'); setTimeout(() => setOk(''), 2000)
   }
 
   // Drug list filtered by search
@@ -6552,18 +6588,53 @@ function Setting({ drugs, nurses, db, locationDirs, saveLocDir }) {
             <button className="btn primary full" onClick={addLocation} disabled={!newLocName.trim()}>+ เพิ่ม Location</button>
           </div>
           <div className="card">
-            <div className="slbl">Locations ทั้งหมด ({STORAGE_GROUPS.length})</div>
-            {STORAGE_GROUPS.map(g => {
+            <div className="slbl">Locations ทั้งหมด ({locations.length})</div>
+            {locations.some(g => g.id.startsWith('GX')) && (
+              <div style={{ fontSize:10, color:'#8BA898', marginBottom:6, display:'flex', alignItems:'center', gap:4 }}>
+                <span>☰</span><span>ลาก Location ที่เพิ่มเองเพื่อเรียงลำดับใหม่</span>
+              </div>
+            )}
+            {locations.map((g, idx) => {
               const dir = locationDirs[g.id] || g.shelfDirection || 'fb'
               const dirLabel = dir === 'fb' ? 'หน้า/หลัง' : dir === 'ltr' ? 'ซ้าย=ก่อน' : 'ขวา=ก่อน'
+              const isDraggable = g.id.startsWith('GX')
+              const isDragOver  = dragOverId === g.id
               return (
-                <div key={g.id} className="row" style={{ flexWrap:'wrap', gap:8 }}>
-                  <div style={{ width:10, height:10, borderRadius:3, background:g.color, flexShrink:0 }}/>
+                <div key={g.id} className="row"
+                  draggable={isDraggable}
+                  onDragStart={isDraggable ? () => setDragId(g.id) : undefined}
+                  onDragOver={isDraggable ? (e) => { e.preventDefault(); setDragOverId(g.id) } : undefined}
+                  onDragLeave={isDraggable ? () => setDragOverId(null) : undefined}
+                  onDrop={isDraggable ? async (e) => {
+                    e.preventDefault(); setDragOverId(null)
+                    if (!dragId || dragId === g.id) { setDragId(null); return }
+                    // reorder: สลับ order ของ dragId กับ target
+                    const custom = locations.filter(x => x.id.startsWith('GX'))
+                    const from   = custom.findIndex(x => x.id === dragId)
+                    const to     = custom.findIndex(x => x.id === g.id)
+                    if (from === -1 || to === -1) { setDragId(null); return }
+                    const reordered = [...custom]
+                    const [moved]   = reordered.splice(from, 1)
+                    reordered.splice(to, 0, moved)
+                    // บันทึก order ใหม่ลง Firestore
+                    const batch = writeBatch(db)
+                    reordered.forEach((x, i) => {
+                      batch.update(doc(db, 'storage_groups', x.docId || x.id), { order: 1000 + i })
+                    })
+                    await batch.commit()
+                    setDragId(null)
+                  } : undefined}
+                  style={{ flexWrap:'wrap', gap:8, cursor: isDraggable ? 'grab' : 'default',
+                    background: isDragOver ? '#E1F5EE' : 'transparent',
+                    border: isDragOver ? '0.5px dashed #0F6E56' : '0.5px solid transparent',
+                    borderRadius:8, padding:'8px 4px', marginBottom:2, transition:'background 0.15s' }}>
+                  {isDraggable && <span style={{ color:'#B0C4B8', fontSize:14, cursor:'grab', flexShrink:0 }}>☰</span>}
+                  <div style={{ width:10, height:10, borderRadius:3, background:g.color, flexShrink:0, marginTop:1 }}/>
                   <div style={{ flex:1 }}>
                     <div style={{ fontSize:12, fontWeight:500 }}>{g.icon} {g.name}</div>
                     <div style={{ fontSize:10, color:'#8BA898' }}>{drugs.filter(d=>d.groupId===g.id).length} ยา · {dirLabel}</div>
                   </div>
-                  <div style={{ display:'flex', gap:3 }}>
+                  <div style={{ display:'flex', gap:3, alignItems:'center' }}>
                     {[['fb','หน้า/หลัง'],['ltr','ซ้าย=ก่อน'],['rtl','ขวา=ก่อน']].map(([v,lbl]) => (
                       <button key={v} onClick={() => saveLocDir(g.id, v)}
                         style={{ padding:'3px 7px', borderRadius:6, border:'0.5px solid', fontSize:10, cursor:'pointer', fontFamily:'inherit',
@@ -6573,8 +6644,13 @@ function Setting({ drugs, nurses, db, locationDirs, saveLocDir }) {
                         {lbl}
                       </button>
                     ))}
+                    {isDraggable && (
+                      <button onClick={() => deleteLocation(g.docId || g.id)}
+                        style={{ padding:'3px 7px', borderRadius:6, border:'0.5px solid #E8B4B4', background:'#FFF0F0', color:'#A32D2D', fontSize:10, cursor:'pointer', fontFamily:'inherit' }}>
+                        ✕ ลบ
+                      </button>
+                    )}
                   </div>
-                  {g.id.startsWith('GX') && <span style={{ fontSize:10, color:'#8BA898' }}>session only</span>}
                 </div>
               )
             })}
