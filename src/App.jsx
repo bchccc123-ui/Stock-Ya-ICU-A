@@ -878,21 +878,31 @@ export default function App() {
   useEffect(() => {
     const init = async () => {
       try {
-        // Seed drugs if empty
+        // Seed drugs — เพิ่มเฉพาะยาที่ยังไม่มีใน Firestore เท่านั้น
+        // ห้าม overwrite เพราะจะลบ custom settings (singleStock, min, par, alertDays ฯลฯ)
         const snap = await getDocs(collection(db, 'drugs'))
-        if (snap.empty) {
-          const batch = writeBatch(db)
-          DRUG_MASTER.forEach(d => {
-            batch.set(doc(db, 'drugs', String(d.id)), d)
-          })
-          await batch.commit()
+        // ป้องกัน fromCache: ถ้า snapshot มาจาก local cache ที่ว่าง ให้ข้ามการ seed
+        if (snap.metadata.fromCache && snap.empty) {
+          console.warn('Seed skipped: snapshot from empty cache, waiting for server data')
+        } else {
+          const existingIds = new Set(snap.docs.map(d => d.id))
+          const missing = DRUG_MASTER.filter(d => !existingIds.has(String(d.id)))
+          if (missing.length > 0) {
+            // มียาที่ขาดหาย (เช่น ครั้งแรก หรือ เพิ่ม DRUG_MASTER ใหม่) — สร้างเฉพาะที่ขาด
+            const batch = writeBatch(db)
+            missing.forEach(d => {
+              batch.set(doc(db, 'drugs', String(d.id)), d)
+            })
+            await batch.commit()
+          }
+          // ถ้า existingIds มีข้อมูลครบแล้ว — ไม่ทำอะไรเลย (ปลอดภัย 100%)
         }
       } catch (e) { console.error('Seed drugs error:', e) }
 
       try {
-        // Seed nurses if empty (separate try/catch so drugs error won't block this)
+        // Seed nurses — เพิ่มเฉพาะที่ยังไม่มี
         const nSnap = await getDocs(collection(db, 'nurses'))
-        if (nSnap.empty) {
+        if (!(nSnap.metadata.fromCache && nSnap.empty) && nSnap.empty) {
           const batch2 = writeBatch(db)
           DEFAULT_NURSES.forEach((n, i) => {
             batch2.set(doc(db, 'nurses', String(i)), { name: n, order: i })
@@ -902,9 +912,9 @@ export default function App() {
       } catch (e) { console.error('Seed nurses error:', e) }
 
       try {
-        // Seed storage_groups if empty
+        // Seed storage_groups — เพิ่มเฉพาะที่ยังไม่มี
         const gSnap = await getDocs(collection(db, 'storage_groups'))
-        if (gSnap.empty) {
+        if (!(gSnap.metadata.fromCache && gSnap.empty) && gSnap.empty) {
           const batch3 = writeBatch(db)
           STORAGE_GROUPS.forEach(g => {
             batch3.set(doc(db, 'storage_groups', g.id), g)
