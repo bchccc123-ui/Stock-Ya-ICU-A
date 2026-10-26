@@ -5,6 +5,7 @@ import {
   onSnapshot, query, orderBy, setDoc, writeBatch, Timestamp
 } from 'firebase/firestore'
 import { DRUG_MASTER, DEFAULT_NURSES, STORAGE_GROUPS, SHIFTS, BEDS } from './data.js'
+import FridgeTempChart from './FridgeTempChart.jsx'
 
 /* ═══ STYLES ═══ */
 const css = `
@@ -6648,6 +6649,9 @@ function Export({ drugsWithStock, lots, withdrawals, checks, daysLeft, fmtMY, ca
           </div>
         )
       })()}
+
+      {/* Fridge temperature chart (monthly) */}
+      <FridgeTempChart checks={checks} logMonth={logMonth} setLogMonth={setLogMonth} onExportCSV={exportFridgeTemp} />
 
       {/* Downloads */}
       <div className="card">
